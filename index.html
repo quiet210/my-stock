@@ -170,10 +170,10 @@
 <div class="setup hidden" id="setup">
   <div class="card" style="margin:0">
     <h2 style="font-size:20px">연결 설정</h2>
-    <p class="muted" style="margin-top:-4px">처음 한 번만 입력하면 이 휴대폰에 저장돼요.</p>
+    <p class="muted" style="margin-top:-4px">시트 메뉴 [📈 내 주식 앱 → ③ 휴대폰 연결]의 QR을 찍으면 자동으로 채워져요. 직접 넣어도 돼요.</p>
     <label class="f">Apps Script 웹앱 주소 (/exec로 끝나는 주소)</label>
     <input id="cfgUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec" autocapitalize="off" autocorrect="off">
-    <label class="f">PIN (Code.gs에 정한 비밀번호)</label>
+    <label class="f">PIN (시트 메뉴에서 정한 비밀번호)</label>
     <input id="cfgPin" type="password" autocomplete="current-password">
     <div id="cfgErr" class="hidden" style="margin-top:14px;padding:12px 14px;border-radius:12px;background:#FDECEC;color:#B42318;font-size:14px;line-height:1.5"></div>
     <button class="btn" onclick="saveSetup()">연결하기</button>
@@ -420,6 +420,14 @@ function doDel(row){ if (confirm('이 종목을 삭제할까요?')) call('delete
 (function init(){
   const t = new Date(); t.setMinutes(t.getMinutes() - t.getTimezoneOffset());
   document.getElementById('dDate').value = t.toISOString().slice(0, 10);
+  // QR 링크로 들어온 경우: #u=웹앱주소&p=PIN → 이 휴대폰에 저장하고 주소창에서 지움
+  const hp = new URLSearchParams(location.hash.slice(1));
+  if (hp.get('u')) {
+    CFG = { url: hp.get('u'), pin: hp.get('p') || '' };
+    LS.set('stock.url', CFG.url); LS.set('stock.pin', CFG.pin);
+    LS.del('stock.cache');
+    history.replaceState(null, '', location.pathname + location.search);
+  }
   if (!CFG.url || !CFG.pin) { showSetup(); return; }
   try { const c = JSON.parse(LS.get('stock.cache') || 'null'); if (c) { D = c; render(); } } catch(e){}
   load();
