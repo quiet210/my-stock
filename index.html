@@ -88,7 +88,7 @@
   .sheet:not(.open){visibility:hidden;transition:transform .22s ease,visibility 0s .22s}
   .sheet.open{transform:none}
   .grab{width:40px;height:5px;border-radius:9px;background:#D9DCE1;margin:0 auto 12px}
-  .toast{position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#16181D;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:30;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
+  .toast{max-width:90vw;white-space:normal!important;text-align:center;position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#16181D;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:30;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
   .toast.show{opacity:1}
   .loading{position:fixed;inset:0;display:grid;place-items:center;background:rgba(244,245,247,.7);z-index:40}
   .spin{width:34px;height:34px;border:3px solid #D9DCE1;border-top-color:var(--navy);border-radius:50%;animation:sp 0.8s linear infinite}
@@ -175,6 +175,7 @@
     <input id="cfgUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec" autocapitalize="off" autocorrect="off">
     <label class="f">PIN (Code.gs에 정한 비밀번호)</label>
     <input id="cfgPin" type="password" autocomplete="current-password">
+    <div id="cfgErr" class="hidden" style="margin-top:14px;padding:12px 14px;border-radius:12px;background:#FDECEC;color:#B42318;font-size:14px;line-height:1.5"></div>
     <button class="btn" onclick="saveSetup()">연결하기</button>
     <button class="btn ghost hidden" id="cfgCancel" onclick="hideSetup()">취소</button>
   </div>
@@ -215,23 +216,33 @@ function saveSetup(){
   if (!/^https:\/\/script\.google\.com\/.+\/exec/.test(url)) return toast('/exec로 끝나는 웹앱 주소를 넣어주세요');
   if (!pin) return toast('PIN을 입력해 주세요');
   CFG = { url, pin };
+  cfgErr.classList.add('hidden');
   call('getData').then(d => {
     LS.set('stock.url', url); LS.set('stock.pin', pin);
     D = d; cache(); render(); hideSetup(); toast('연결됐어요');
-  }).catch(() => {});
+  }).catch(e => { cfgErr.textContent = e.message; cfgErr.classList.remove('hidden'); });
 }
 
 /* ---- 서버 호출 ---- */
 async function call(fn, ...args){
   busy(true);
   try {
-    const r = await fetch(CFG.url, { method: 'POST', body: JSON.stringify({ pin: CFG.pin, action: fn, args }) });
-    const j = await r.json();
+    let r;
+    try { r = await fetch(CFG.url, { method: 'POST', body: JSON.stringify({ pin: CFG.pin, action: fn, args }) }); }
+    catch (e) { throw new Error('웹앱에 연결하지 못했어요. 배포 액세스가 "모든 사용자"인지, 주소가 /exec로 끝나는지 확인해 주세요.'); }
+    const text = await r.text();
+    let j;
+    try { j = JSON.parse(text); }
+    catch (e) {
+      if (/doPost/.test(text)) throw new Error('새 Code.gs가 배포되지 않았어요. 배포 관리 → 수정 → "새 버전"으로 다시 배포해 주세요.');
+      if (/accounts\.google\.com|ServiceLogin|로그인|Sign in/i.test(text)) throw new Error('로그인 화면이 돌아왔어요. 배포 액세스를 "모든 사용자"로 바꾸고 새 버전으로 배포해 주세요.');
+      throw new Error('웹앱 응답을 읽지 못했어요 (HTTP ' + r.status + '). 새 버전으로 배포했는지 확인해 주세요.');
+    }
     if (!j.ok) throw new Error(j.error);
     return j.data;
   } catch (e) {
-    const msg = e.message === 'Failed to fetch' || e.name === 'TypeError' ? '연결 실패 — 인터넷이나 웹앱 주소를 확인해 주세요' : e.message;
-    toast(msg);
+    const msg = e.message;
+    if (setup.classList.contains('hidden')) toast(msg);
     if (/PIN/.test(msg) && setup.classList.contains('hidden')) showSetup();
     throw e;
   } finally { busy(false); }
