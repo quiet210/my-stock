@@ -94,6 +94,8 @@
   .spin{width:34px;height:34px;border:3px solid #D9DCE1;border-top-color:var(--navy);border-radius:50%;animation:sp 0.8s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
   .setup{position:fixed;inset:0;z-index:35;background:var(--bg);padding:calc(40px + env(safe-area-inset-top)) 16px 16px;overflow:auto}
+  .tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px;margin-right:2px;vertical-align:1px}
+  .tag.buy{background:#FDECEC;color:var(--up)} .tag.sell{background:#E8F0FE;color:var(--down)}
   .hidden{display:none!important}
   .empty{text-align:center;color:var(--sub);padding:18px 0}
 </style>
@@ -123,6 +125,7 @@
     </div>
     <div class="card">
       <div class="row"><h2 style="margin:0">배당포함 총손익</h2><b class="num" id="tTotal">-</b></div>
+      <div class="row" style="margin-top:8px"><span class="muted">실현손익 (누적)</span><b class="num" id="tReal">-</b></div>
       <div class="muted" style="margin-top:4px">매입금액 <span class="num" id="tCost">-</span> · 업데이트 <span id="tUpd">-</span></div>
     </div>
   </section>
@@ -154,6 +157,23 @@
     </div>
     <div class="card"><h2>최근 배당</h2><div id="divList"></div></div>
   </section>
+
+  <!-- 거래 -->
+  <section id="tab-trade" class="hidden">
+    <div class="card">
+      <div class="row"><h2 style="margin:0">실현손익</h2>
+        <select id="tYear" onchange="renderTrade()" style="width:auto;padding:6px 30px 6px 12px;font-size:14px"></select></div>
+      <div class="big num" id="rTot" style="font-size:26px;margin-top:8px">-</div>
+      <div class="grid2">
+        <div class="stat"><span class="label">└ 주가손익</span><b class="num" id="rPrice">-</b></div>
+        <div class="stat"><span class="label">└ 환차손익</span><b class="num" id="rFx">-</b></div>
+        <div class="stat"><span class="label">매수 금액</span><b class="num" id="rBuy">-</b></div>
+        <div class="stat"><span class="label">매도 금액</span><b class="num" id="rSell">-</b></div>
+      </div>
+    </div>
+    <div class="card"><h2>거래 기록</h2><div id="tradeList"></div></div>
+    <p class="muted" style="text-align:center">매수·매도는 보유종목 탭에서 종목을 눌러 입력해요</p>
+  </section>
 </main>
 
 <button class="fab hidden" id="fab" onclick="openNew()">+</button>
@@ -161,6 +181,7 @@
 <nav>
   <button class="on" data-t="home" onclick="tab('home')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>요약</button>
   <button data-t="hold" onclick="tab('hold')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>보유종목</button>
+  <button data-t="trade" onclick="tab('trade')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4v16M7 20l-3-3M7 20l3-3M17 20V4M17 4l-3 3M17 4l3 3"/></svg>거래</button>
   <button data-t="div" onclick="tab('div')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.3 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v2M12 16v2"/></svg>배당금</button>
 </nav>
 
@@ -251,10 +272,10 @@ function cache(){ LS.set('stock.cache', JSON.stringify(D)); }
 function load(){ call('getData').then(d => { D = d; cache(); render(); }).catch(() => {}); }
 
 function tab(t){
-  ['home','hold','div'].forEach(x => document.getElementById('tab-' + x).classList.toggle('hidden', x !== t));
+  ['home','hold','trade','div'].forEach(x => document.getElementById('tab-' + x).classList.toggle('hidden', x !== t));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
   document.getElementById('fab').classList.toggle('hidden', t !== 'hold');
-  document.getElementById('ttl').textContent = {home:'내 주식', hold:'보유종목', div:'배당금'}[t];
+  document.getElementById('ttl').textContent = {home:'내 주식', hold:'보유종목', trade:'거래 기록', div:'배당금'}[t];
   window.scrollTo(0, 0);
 }
 
@@ -269,6 +290,7 @@ function render(){
   document.getElementById('tDiv').textContent = won(divKrw);
   document.getElementById('tRate').textContent = D.fx ? D.fx.toLocaleString('ko-KR', {maximumFractionDigits:2}) + '원' : '-';
   setv('tTotal', pnl + divKrw);
+  setv('tReal', sum(D.trades || [], 'realized'));
   document.getElementById('tCost').textContent = won(cost);
   document.getElementById('tUpd').textContent = D.updated;
 
@@ -312,7 +334,38 @@ function render(){
   ys.innerHTML = years.map(y => `<option>${y}</option>`).join('');
   if (py) ys.value = py;
   renderDiv();
+
+  const T = D.trades || [];
+  const ty = document.getElementById('tYear'), pty = ty.value;
+  const tyears = [...new Set(T.map(t => +t.date.slice(0, 4)).concat([new Date().getFullYear()]))].sort((a, b) => b - a);
+  ty.innerHTML = tyears.map(y => `<option>${y}</option>`).join('') + '<option value="all">전체 기간</option>';
+  if (pty) ty.value = pty;
+  renderTrade();
 }
+
+function renderTrade(){
+  const y = document.getElementById('tYear').value;
+  const T = (D.trades || []).filter(t => y === 'all' || t.date.slice(0, 4) === y);
+  const S = T.filter(t => t.type === '매도');
+  setv('rTot', sum(S, 'realized')); setv('rPrice', sum(S, 'realizedPrice')); setv('rFx', sum(S, 'realizedFx'));
+  document.getElementById('rTot').classList.add('big');
+  document.getElementById('rBuy').textContent = won(sum(T.filter(t => t.type === '매수'), 'amount'));
+  document.getElementById('rSell').textContent = won(sum(S, 'amount'));
+  document.getElementById('tradeList').innerHTML = T.length ? T.slice(0, 100).map(t => {
+    const us = t.kind === '미국', sellT = t.type === '매도';
+    return `<div class="divrow"><div style="min-width:0">
+        <div style="font-weight:600"><span class="tag ${sellT ? 'sell' : 'buy'}">${t.type}</span> ${esc(t.name)}</div>
+        <div class="muted num">${t.date} · ${qtyf(t.qty)}주 × ${us ? usd(t.price) : won(t.price)}${us && t.fx ? ' · ' + t.fx.toLocaleString('ko-KR') + '원' : ''}</div>
+        ${sellT ? `<div class="fxline num">실현 <b class="${cls(t.realized)}">${sgn(t.realized)}</b>${us ? ` (주가 <span class="${cls(t.realizedPrice)}">${sgnN(t.realizedPrice)}</span> · 환율 <span class="${cls(t.realizedFx)}">${sgnN(t.realizedFx)}</span>)` : ''}</div>` : ''}
+      </div>
+      <div class="row" style="align-items:flex-start;flex:none;margin-left:8px"><b class="num" style="white-space:nowrap">${won(t.amount)}</b><button class="x" onclick="delTrade(${t.row})">×</button></div></div>`;
+  }).join('') : '<div class="empty">이 기간에 거래 기록이 없어요</div>';
+}
+function delTrade(row){
+  if (!confirm('이 거래 기록을 지울까요?\n(보유 수량은 그대로예요. 필요하면 보유종목에서 \'수정\'으로 고치세요)')) return;
+  call('deleteTrade', row).then(r => { D = r; cache(); render(); toast('기록을 지웠어요'); }).catch(() => {});
+}
+function today(){ const t = new Date(); t.setMinutes(t.getMinutes() - t.getTimezoneOffset()); return t.toISOString().slice(0, 10); }
 function setv(id, v){ const e = document.getElementById(id); e.className = 'num ' + cls(v); e.textContent = sgn(v); }
 
 function renderDiv(){
@@ -362,6 +415,7 @@ function openHold(row){
     </div>
     <div class="seg" style="margin-top:16px"><button class="on" id="sgB" onclick="seg('B')">추가 매수</button><button id="sgS" onclick="seg('S')">매도</button><button id="sgE" onclick="seg('E')">수정</button></div>
     <div id="fB">
+      <label class="f">매수일</label><input id="bD" type="date" value="${today()}">
       <label class="f">매수 수량</label><input id="bQ" type="number" inputmode="decimal" step="any">
       <label class="f">매수 단가 (${us ? '달러' : '원'})</label><input id="bP" type="number" inputmode="decimal" step="any" value="${h.price || ''}">
       ${us ? `<label class="f">매수 환율</label><input id="bF" type="number" inputmode="decimal" step="any" value="${D.fx ? D.fx.toFixed(2) : ''}"><div class="hint">증권앱 체결 내역의 적용 환율을 넣으면 가장 정확해요</div>` : ''}
@@ -369,9 +423,13 @@ function openHold(row){
       <div class="hint">평균단가${us ? '·평균매입환율' : ''}은 기존 보유분과 가중평균으로 자동 계산돼요</div>
     </div>
     <div id="fS" class="hidden">
-      <label class="f">매도 수량 (보유 ${qtyf(h.qty)}주)</label><input id="sQ" type="number" inputmode="decimal" step="any">
+      <label class="f">매도일</label><input id="sD" type="date" value="${today()}">
+      <label class="f">매도 수량 (보유 ${qtyf(h.qty)}주)</label><input id="sQ" type="number" inputmode="decimal" step="any" oninput="sellPreview(${row})">
+      <label class="f">매도 단가 (${us ? '달러' : '원'})</label><input id="sP" type="number" inputmode="decimal" step="any" value="${h.price || ''}" oninput="sellPreview(${row})">
+      ${us ? `<label class="f">매도 환율</label><input id="sF" type="number" inputmode="decimal" step="any" value="${D.fx ? D.fx.toFixed(2) : ''}" oninput="sellPreview(${row})">` : ''}
+      <div class="stat" style="margin-top:12px"><span class="label">예상 실현손익</span><b class="num" id="sPrev">-</b><div class="fxline num" id="sPrev2"></div></div>
       <button class="btn" onclick="doSell(${row})">매도 반영</button>
-      <div class="hint">평균단가는 그대로 두고 수량만 줄여요. 전량 매도하면 목록에서 빠져요</div>
+      <div class="hint">평균단가는 그대로 두고 수량만 줄여요. 전량 매도하면 목록에서 빠지고, 실현손익은 거래 탭에 남아요</div>
     </div>
     <div id="fE" class="hidden">${holdForm(h)}
       <button class="btn" onclick="doSave(${row})">저장</button>
@@ -401,19 +459,39 @@ function formVals(row){
   if (!v.name || !(+v.qty > 0) || !(+v.avg > 0)) { toast('종목명·수량·평균단가를 입력해 주세요'); return null; }
   if (v.kind === '미국' && !(+v.buyFx > 0)) { toast('평균매입환율을 입력해 주세요'); return null; }
   if (!row && D.holdings.some(h => h.name === v.name)) { toast('이미 있는 종목이에요. 종목을 눌러 추가 매수하세요'); return null; }
+  if (!row) { v.date = window.eD ? eD.value : ''; v.logBuy = window.eLog ? eLog.checked : false; }
   return v;
 }
-function openNew(){ openSheet(`<h2>새 종목 추가</h2>${holdForm(null)}<button class="btn" onclick="doSave(null)">추가</button>`); }
+function openNew(){ openSheet(`<h2>새 종목 추가</h2>${holdForm(null)}
+  <label class="f">매수일</label><input id="eD" type="date" value="${today()}">
+  <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:14px"><input type="checkbox" id="eLog" checked style="width:auto"> 거래 기록에 '매수'로 남기기</label>
+  <div class="hint">예전부터 갖고 있던 종목을 옮겨 적는 거라면 체크를 끄세요</div>
+  <button class="btn" onclick="doSave(null)">추가</button>`); }
 function done(r, msg){ D = r; cache(); render(); closeSheet(); toast(msg); }
 function doSave(row){ const v = formVals(row); if (v) call('saveHolding', v).then(r => done(r, row ? '수정했어요' : '추가했어요')).catch(() => {}); }
 function doBuy(row){
   const q = +bQ.value, p = +bP.value, f = window.bF ? +bF.value : 0;
   if (!(q > 0) || !(p > 0) || (window.bF && !(f > 0))) return toast('수량·단가' + (window.bF ? '·환율' : '') + '을 입력해 주세요');
-  call('buyMore', row, q, p, f).then(r => done(r, '매수를 반영했어요')).catch(() => {});
+  call('buyMore', row, q, p, f, bD.value).then(r => done(r, '매수를 반영했어요')).catch(() => {});
+}
+function sellCalc(row){
+  const h = H_(row), us = h.kind === '미국';
+  const q = +sQ.value, p = +sP.value, f = us ? +sF.value : 1, af = us ? (h.buyFx || 0) : 1;
+  const price = (p - h.avg) * q * f, fx = us ? h.avg * q * (f - af) : 0;
+  return { h, us, q, p, f, price, fx, total: price + fx };
+}
+function sellPreview(row){
+  const c = sellCalc(row);
+  if (!(c.q > 0) || !(c.p > 0)) { sPrev.textContent = '-'; sPrev.className = 'num'; sPrev2.textContent = ''; return; }
+  setv('sPrev', c.total);
+  sPrev2.innerHTML = c.us ? `주가 <span class="${cls(c.price)}">${sgnN(c.price)}</span> · 환율 <span class="${cls(c.fx)}">${sgnN(c.fx)}</span>` : '';
+  if (c.q > c.h.qty + 1e-9) { sPrev2.innerHTML = '<span class="up">보유 수량보다 많아요</span>'; }
 }
 function doSell(row){
-  const q = +sQ.value; if (!(q > 0)) return toast('매도 수량을 입력해 주세요');
-  call('sell', row, q).then(r => done(r, '매도를 반영했어요')).catch(() => {});
+  const c = sellCalc(row);
+  if (!(c.q > 0) || !(c.p > 0) || (c.us && !(c.f > 0))) return toast('수량·단가' + (c.us ? '·환율' : '') + '을 입력해 주세요');
+  if (c.q > c.h.qty + 1e-9) return toast('보유 수량보다 많이 팔 수 없어요');
+  call('sell', row, c.q, c.p, c.f, sD.value).then(r => done(r, '매도를 반영했어요')).catch(() => {});
 }
 function doDel(row){ if (confirm('이 종목을 삭제할까요?')) call('deleteHolding', row).then(r => done(r, '삭제했어요')).catch(() => {}); }
 
