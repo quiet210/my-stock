@@ -96,6 +96,10 @@
   .setup{position:fixed;inset:0;z-index:35;background:var(--bg);padding:calc(40px + env(safe-area-inset-top)) 16px 16px;overflow:auto}
   .tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px;margin-right:2px;vertical-align:1px}
   .tag.buy{background:#FDECEC;color:var(--up)} .tag.sell{background:#E8F0FE;color:var(--down)}
+.chkrow{display:flex;gap:10px;align-items:center;margin-top:14px;font:inherit;font-size:15px;background:none;border:0;padding:4px 0;color:var(--ink);width:100%;text-align:left}
+  .chk{width:24px;height:24px;border-radius:7px;border:2px solid #C9CED6;background:#fff;flex:none;display:grid;place-items:center}
+  .chk.on{background:var(--navy);border-color:var(--navy)}
+  .chk.on::after{content:'';width:6px;height:11px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg) translate(-1px,-1px)}
   .hidden{display:none!important}
   .empty{text-align:center;color:var(--sub);padding:18px 0}
 </style>
@@ -459,12 +463,12 @@ function formVals(row){
   if (!v.name || !(+v.qty > 0) || !(+v.avg > 0)) { toast('종목명·수량·평균단가를 입력해 주세요'); return null; }
   if (v.kind === '미국' && !(+v.buyFx > 0)) { toast('평균매입환율을 입력해 주세요'); return null; }
   if (!row && D.holdings.some(h => h.name === v.name)) { toast('이미 있는 종목이에요. 종목을 눌러 추가 매수하세요'); return null; }
-  if (!row) { v.date = window.eD ? eD.value : ''; v.logBuy = window.eLog ? eLog.checked : false; }
+  if (!row) { v.date = window.eD ? eD.value : ''; v.logBuy = window.eLog ? eLog.classList.contains('on') : false; }
   return v;
 }
 function openNew(){ openSheet(`<h2>새 종목 추가</h2>${holdForm(null)}
   <label class="f">매수일</label><input id="eD" type="date" value="${today()}">
-  <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:14px"><input type="checkbox" id="eLog" checked style="width:auto"> 거래 기록에 '매수'로 남기기</label>
+  <button type="button" class="chkrow" onclick="eLog.classList.toggle('on')"><span class="chk on" id="eLog"></span>거래 기록에 '매수'로 남기기</button>
   <div class="hint">예전부터 갖고 있던 종목을 옮겨 적는 거라면 체크를 끄세요</div>
   <button class="btn" onclick="doSave(null)">추가</button>`); }
 function done(r, msg){ D = r; cache(); render(); closeSheet(); toast(msg); }
